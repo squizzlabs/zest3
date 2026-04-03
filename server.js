@@ -306,6 +306,15 @@ function requestHandler(req, res) {
 	}
 }
 
+async function shutdown(signal) {
+	console.log(` ... shutting down`);
+	process.exit(0);
+}
+
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+	process.on(signal, () => shutdown(signal));
+}
+
 async function start() {
 	const client = new MongoClient(MONGODB_URI);
 	await client.connect();
@@ -350,17 +359,6 @@ async function start() {
 	server.listen(PORT, () => {
 		console.log(`Listening on http://localhost:${PORT}`);
 	});
-
-	async function shutdown(signal) {
-		console.log(` ... shutting down`);
-		await new Promise((resolve) => server.close(resolve));
-		await client.close();
-		process.exit(0);
-	}
-
-	for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-		process.on(signal, () => shutdown(signal));
-	}
 }
 
 start().catch((error) => {
