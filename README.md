@@ -74,7 +74,7 @@ db.documents.insertOne({
 ## Docker
 
 ```bash
-docker build -t zest3 . --env-file .env
+docker build -t zest3 .
 ```
 
 `PORT` defaults to `3000` in the image. You can set a different build-time default (used by `EXPOSE`) by setting it in .env, your environment, or with `--build-arg PORT=<port>`.
