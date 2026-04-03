@@ -1,0 +1,16 @@
+{
+  "name": "zest3",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Minimal Node.js app that serves MongoDB documents by URI path",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mongodb": "^6.17.0"
+  }
+}
