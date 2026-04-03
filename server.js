@@ -70,11 +70,12 @@ const MAX_TTL_SECONDS = 31536000;
 
 let collection;
 
-function sendJson(res, status, data) {
+function sendJson(res, status, data, extraHeaders = {}) {
 	const body = JSON.stringify(data);
 	res.writeHead(status, {
 		"Content-Type": "application/json; charset=utf-8",
-		"Content-Length": Buffer.byteLength(body)
+		"Content-Length": Buffer.byteLength(body),
+		...extraHeaders
 	});
 	res.end(body);
 }
@@ -174,13 +175,13 @@ async function handleGetDoc(req, res, pathname, headOnly = false) {
 	if (res.writableEnded) return;
 
 	if (!doc) {
-		sendJson(res, 404, { error: "Not found" });
+		sendJson(res, 404, { error: "Not found" }, { "Cache-Control": "public, max-age=300" });
 		return;
 	}
 
 	const lastModified = toLastModifiedDate(doc.lastModified);
 	if (!lastModified) {
-		sendJson(res, 404, { error: "Not found" });
+		sendJson(res, 404, { error: "Not found" }, { "Cache-Control": "public, max-age=300" });
 		return;
 	}
 
