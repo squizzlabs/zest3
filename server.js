@@ -263,12 +263,23 @@ function routeFromRequest(pathname) {
 }
 
 function requestHandler(req, res) {
+	res.setHeader("Access-Control-Allow-Origin", "*");
+	res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+	res.setHeader("Access-Control-Allow-Headers", "*");
+
 	const timeoutHandle = setTimeout(() => {
 		if (res.writableEnded) return;
 		sendJson(res, 504, { error: "Request timeout" });
 		clearTimeout(timeoutHandle);
 	}, RESPONSE_TIMEOUT_MS);
 	try {
+		if (req.method === "OPTIONS") {
+			res.writeHead(204);
+			res.end();
+			clearTimeout(timeoutHandle);
+			return;
+		}
+
 		if ((req.url || "").includes("?")) {
 			sendJson(res, 403, { error: "Forbidden" });
 			clearTimeout(timeoutHandle);
