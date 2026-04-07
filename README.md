@@ -20,7 +20,8 @@ This application is read-only and does not modify data in MongoDB. Handle docume
 | `content` | yes | Response body |
 | `lastModified` | yes | Source timestamp for the `Last-Modified` header |
 | `mimetype` | no | Sent as `Content-Type` (defaults to "application/octet-stream") |
-| `ttl` | no | Adds `Cache-Control: public, max-age=<ttl>` |
+| `maxage` | no | Adds `Cache-Control: public, max-age=<maxage>` (can be combined with s-maxage) |
+| `smaxage` | no | Adds `Cache-Control: public, s-maxage=<smaxage>` (can be combined with max-age) |
 | `headers` | no | Add custom headers to the response (array) |
 
 Responses include `Last-Modified` from the document and an `ETag` in the form `<lastModifiedUnixTime>-<md5(content)>`. Clients that send a matching `If-None-Match` receive `304 Not Modified`; otherwise, `If-Modified-Since` is used as a fallback validator.
@@ -67,7 +68,7 @@ db.documents.insertOne({
 	content: "<h1>Hello World!</h1><p> - from zest3</p>",
 	mimetype: "text/html; charset=utf-8",
 	lastModified: new Date(),
-	ttl: 3600
+	maxage: 3600
 });
 ```
 

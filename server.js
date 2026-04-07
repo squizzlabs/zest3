@@ -94,13 +94,13 @@ function sanitizeMimeType(value) {
 	return text;
 }
 
-function sanitizeTtl(value) {
+function sanitizeInteger(value) {
 	if (value == null) return null;
-	const ttl = Number(value);
-	if (!Number.isFinite(ttl)) return null;
-	const ttlInt = Math.floor(ttl);
-	if (ttlInt < 0) return null;
-	return Math.min(ttlInt, MAX_TTL_SECONDS);
+	const nInt = Number(value);
+	if (!Number.isFinite(nInt)) return null;
+	const intVal = Math.floor(nInt);
+	if (intVal < 0) return null;
+	return Math.min(intVal, MAX_TTL_SECONDS);
 }
 
 function sanitizeCacheTags(value) {
@@ -194,8 +194,15 @@ async function handleGetDoc(req, res, pathname, headOnly = false) {
 		"Last-Modified": lastModified.toUTCString(),
 		"Content-Length": body.length
 	};
-	const ttl = sanitizeTtl(doc.ttl);
-	if (ttl != null) headers["Cache-Control"] = `public, max-age=${ttl}`;
+	const maxage = sanitizeInteger(doc.maxage);
+	const sMaxage = sanitizeInteger(doc.smaxage);
+	if (sMaxage != null && maxage != null) {
+		headers["Cache-Control"] = `public, max-age=${maxage}, s-maxage=${sMaxage}`;
+	} else if (sMaxage != null) {
+		headers["Cache-Control"] = `public, max-age=0, s-maxage=${sMaxage}`;
+	} else if (maxage != null) {
+		headers["Cache-Control"] = `public, max-age=${maxage}`;
+	}
 	const cacheTags = sanitizeCacheTags(doc.cacheTags);
 	if (cacheTags) headers["Cache-Tag"] = cacheTags;
 	
