@@ -25,6 +25,11 @@ if (!process.env.PORT || !process.env.MONGODB_URI || !process.env.DB_NAME || !pr
 				|| (value.startsWith("'") && value.endsWith("'"))
 			) {
 				value = value.slice(1, -1);
+				// Handle escape sequences
+				value = value.replace(/\\([\\nrt"])/g, (match, char) => {
+					const escapeMap = { n: "\n", r: "\r", t: "\t", "\\": "\\", '"': '"' };
+					return escapeMap[char] || match;
+				});
 			}
 
 			if (process.env[key] == null) process.env[key] = value;
@@ -69,6 +74,7 @@ const RESPONSE_TIMEOUT_MS = 10000;
 const MAX_TTL_SECONDS = 31536000;
 
 let collection;
+let mongoClient;
 
 function sendJson(res, status, data, extraHeaders = {}) {
 	const body = JSON.stringify(data);
@@ -135,8 +141,8 @@ function parseIfModifiedSince(headerValue) {
 
 function createEtag(lastModified, body) {
 	const unixTime = Math.floor(lastModified.getTime() / 1000);
-	const md5 = crypto.createHash("md5").update(body).digest("hex");
-	return `"${unixTime}-${md5}"`;
+	const sha256 = crypto.createHash("sha256").update(body).digest("hex").slice(0, 16);
+	return `"${unixTime}-${sha256}"`;
 }
 
 function parseIfNoneMatch(headerValue) {
@@ -166,7 +172,12 @@ function etagMatches(ifNoneMatchHeader, etag) {
 }
 
 async function handleGetDoc(req, res, pathname, headOnly = false) {
-	const requestPath = pathname || "/";
+	let requestPath = pathname || "/";
+	try {
+		requestPath = decodeURIComponent(requestPath);
+	} catch (e) {
+		// Invalid URL encoding, use as-is
+	}
 	const doc = await collection.findOne(
 		{ path: requestPath },
 		{ projection: { _id: 0 } }
@@ -175,13 +186,13 @@ async function handleGetDoc(req, res, pathname, headOnly = false) {
 	if (res.writableEnded) return;
 
 	if (!doc) {
-		sendJson(res, 404, { error: "Not found" }, { "Cache-Control": "public, max-age=300" });
+		sendJson(res, 404, { error: "Not found" }, { "Cache-Control": "no-cache" });
 		return;
 	}
 
 	const lastModified = toLastModifiedDate(doc.lastModified);
 	if (!lastModified) {
-		sendJson(res, 404, { error: "Not found" }, { "Cache-Control": "public, max-age=300" });
+		sendJson(res, 404, { error: "Not found" }, { "Cache-Control": "no-cache" });
 		return;
 	}
 
@@ -202,6 +213,8 @@ async function handleGetDoc(req, res, pathname, headOnly = false) {
 		headers["Cache-Control"] = `public, max-age=0, s-maxage=${sMaxage}`;
 	} else if (maxage != null) {
 		headers["Cache-Control"] = `public, max-age=${maxage}`;
+	} else {
+		headers["Cache-Control"] = "public, max-age=0";
 	}
 	const cacheTags = sanitizeCacheTags(doc.cacheTags);
 	if (cacheTags) headers["Cache-Tag"] = cacheTags;
@@ -241,7 +254,7 @@ async function handleGetDoc(req, res, pathname, headOnly = false) {
 
 async function handleHealth(res) {
 	if (!collection) {
-		sendJson(res, 503, { ok: false, error: "Database unavailable" });
+		sendJson(res, 503, { ok: false, error: "Database unavailable" }, { "Cache-Control": "no-store" });
 		return;
 	}
 
@@ -255,7 +268,7 @@ async function handleHealth(res) {
 	} catch (error) {
 		console.error("Health check failed", error);
 		if (res.writableEnded) return;
-		sendJson(res, 503, { ok: false, error: "Database unavailable" });
+		sendJson(res, 503, { ok: false, error: "Database unavailable" }, { "Cache-Control": "no-store" });
 	}
 }
 
@@ -276,7 +289,7 @@ function requestHandler(req, res) {
 
 	const timeoutHandle = setTimeout(() => {
 		if (res.writableEnded) return;
-		sendJson(res, 504, { error: "Request timeout" });
+		sendJson(res, 504, { error: "Request timeout" }, { "Cache-Control": "no-store" });
 		clearTimeout(timeoutHandle);
 	}, RESPONSE_TIMEOUT_MS);
 	try {
@@ -288,7 +301,7 @@ function requestHandler(req, res) {
 		}
 
 		if ((req.url || "").includes("?")) {
-			sendJson(res, 403, { error: "Forbidden" });
+			sendJson(res, 403, { error: "Forbidden" }, { "Cache-Control": "no-store" });
 			clearTimeout(timeoutHandle);
 			return;
 		}
@@ -310,35 +323,39 @@ function requestHandler(req, res) {
 				})
 				.catch((error) => {
 					console.error(error);
-					if (!res.writableEnded) sendJson(res, 500, { error: "Internal server error" });
+					if (!res.writableEnded) sendJson(res, 500, { error: "Internal server error" }, { "Cache-Control": "no-store" });
 					clearTimeout(timeoutHandle);
 				});
 			return;
 		}
 
-		sendJson(res, 405, { error: "Not Allowed" });
+		sendJson(res, 405, { error: "Not Allowed" }, { "Cache-Control": "no-store" });
 		clearTimeout(timeoutHandle);
 	} catch (error) {
 		console.error("Error in requestHandler:", error);
-		if (!res.writableEnded) sendJson(res, 500, { error: "Internal server error" });
+		if (!res.writableEnded) sendJson(res, 500, { error: "Internal server error" }, { "Cache-Control": "no-store" });
 		clearTimeout(timeoutHandle);
 	}
 }
 
-async function shutdown(signal) {
+function shutdown() {
 	console.log(` ... shutting down`);
-	process.exit(0);
+	if (mongoClient) {
+		mongoClient.close().catch((err) => {
+			console.error("Error closing MongoDB client:", err);
+		});
+	}
 }
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-	process.on(signal, () => shutdown(signal));
+	process.on(signal, () => shutdown());
 }
 
 async function start() {
-	const client = new MongoClient(MONGODB_URI);
-	await client.connect();
+	mongoClient = new MongoClient(MONGODB_URI);
+	await mongoClient.connect();
 
-	const db = client.db(DB_NAME);
+	const db = mongoClient.db(DB_NAME);
 	const collectionInfo = await db.listCollections(
 		{ name: COLLECTION_NAME },
 		{ nameOnly: true }

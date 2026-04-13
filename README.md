@@ -8,9 +8,17 @@ All paths received by this app are absolute.  The following are each distinct:
 - /foo/bar/
 - /foo/bar/index.html
 
+Request paths are URL-decoded before lookup. For example, `/foo%20bar` resolves the same document as `/foo bar`.
+
 Any requests that have query parameters attached will receive a `403 Forbidden` response.
 
 This application is read-only and does not modify data in MongoDB. Handle document CRUD operations outside this app. The one exception is `CREATE_INDEX=true`, which causes the app to create a unique index on the `path` field at startup if one does not already exist.
+
+## Endpoints
+
+- `GET /health` — health check
+- `GET /<path>` — serve document
+- `HEAD /<path>` — headers only
 
 ## Document fields
 
@@ -24,7 +32,28 @@ This application is read-only and does not modify data in MongoDB. Handle docume
 | `smaxage` | no | Adds `Cache-Control: public, s-maxage=<smaxage>` (can be combined with max-age) |
 | `headers` | no | Add custom headers to the response (array) |
 
-Responses include `Last-Modified` from the document and an `ETag` in the form `<lastModifiedUnixTime>-<md5(content)>`. Clients that send a matching `If-None-Match` receive `304 Not Modified`; otherwise, `If-Modified-Since` is used as a fallback validator.
+If neither `maxage` nor `smaxage` is specified, responses default to `Cache-Control: public, max-age=0`.
+
+Missing documents return `404 Not Found` with `Cache-Control: no-cache` so clients revalidate instead of caching the miss. Error responses such as `403`, `405`, `500`, `503`, and `504` are sent with `Cache-Control: no-store`.
+
+Responses include `Last-Modified` from the document and an `ETag` in the form `<lastModifiedUnixTime>-<sha256(content).slice(0,16)>`. Clients that send a matching `If-None-Match` receive `304 Not Modified`; otherwise, `If-Modified-Since` is used as a fallback validator.
+
+### Custom Headers
+
+The `headers` field allows you to add or override any HTTP response headers. This is by design that you can override any header zest3 would normally send, including `Content-Type`, `ETag`, `Last-Modified`, and `Content-Length`. Use this power carefully; incorrect headers can break client behavior. However, this flexibility enables advanced use cases where you need full control over the response.
+
+```javascript
+db.documents.insertOne({
+	path: "/api/data",
+	content: '[]',
+	mimetype: 'text/json',
+	lastModified: new Date(),
+	headers: {
+		"X-Custom-Header": "value",
+		"Content-Type": "text/custom"  // Override the expected type, even if already defined as mimetype
+	}
+});
+```
 
 ## CORS
 
@@ -36,29 +65,7 @@ CORS headers are automatically included in all responses with the following defa
 | `Access-Control-Allow-Methods` | `GET, HEAD, OPTIONS` |
 | `Access-Control-Allow-Headers` | `*` |
 
-### Custom CORS Headers
-
-You can override CORS headers (and add any custom headers) by including a `headers` object in a document. Custom headers in the document will be merged with the response and override defaults:
-
-```javascript
-db.documents.insertOne({
-	path: "/api/data",
-	content: '{"message":"hello"}',
-	mimetype: "application/json",
-	lastModified: new Date(),
-	headers: {
-		"Access-Control-Allow-Origin": "https://example.com",
-		"Access-Control-Max-Age": "3600",
-		"X-Custom-Header": "custom-value"
-	}
-});
-```
-
-## Endpoints
-
-- `GET /health` — health check
-- `GET /<path>` — serve document
-- `HEAD /<path>` — headers only
+You can override CORS headers using the `headers` field (see [Custom Headers](#custom-headers) section above).
 
 ## Setup
 
@@ -72,6 +79,8 @@ npm start
 ## Config (`.env`) or environment variables
 
 All variables are required. The app will exit with an error if any are missing.
+
+When values are quoted in `.env`, zest3 also supports the escape sequences `\n`, `\r`, `\t`, `\\`, and `\"`.
 
 ```
 PORT=3000
