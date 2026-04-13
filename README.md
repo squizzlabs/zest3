@@ -26,6 +26,34 @@ This application is read-only and does not modify data in MongoDB. Handle docume
 
 Responses include `Last-Modified` from the document and an `ETag` in the form `<lastModifiedUnixTime>-<md5(content)>`. Clients that send a matching `If-None-Match` receive `304 Not Modified`; otherwise, `If-Modified-Since` is used as a fallback validator.
 
+## CORS
+
+CORS headers are automatically included in all responses with the following defaults:
+
+| Header | Default Value |
+|---|---|
+| `Access-Control-Allow-Origin` | `*` |
+| `Access-Control-Allow-Methods` | `GET, HEAD, OPTIONS` |
+| `Access-Control-Allow-Headers` | `*` |
+
+### Custom CORS Headers
+
+You can override CORS headers (and add any custom headers) by including a `headers` object in a document. Custom headers in the document will be merged with the response and override defaults:
+
+```javascript
+db.documents.insertOne({
+	path: "/api/data",
+	content: '{"message":"hello"}',
+	mimetype: "application/json",
+	lastModified: new Date(),
+	headers: {
+		"Access-Control-Allow-Origin": "https://example.com",
+		"Access-Control-Max-Age": "3600",
+		"X-Custom-Header": "custom-value"
+	}
+});
+```
+
 ## Endpoints
 
 - `GET /health` — health check
